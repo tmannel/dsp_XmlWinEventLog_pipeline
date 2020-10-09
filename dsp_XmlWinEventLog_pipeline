@@ -15,4 +15,9 @@ $statement_3 =
 | rex max_match=0 field=body "<EventID.*?>(?<EventCode>.+?)</EventID>.*<EventRecordID>(?<EventRecordID>.+?)</EventRecordID>.*<Channel>(?<Channel>.+?)</Channel><Computer>(?<host>.+?)</Computer>.*" 
 | rex max_match=0 field=body "<Data Name='(?<key>.*?)'>(?<value>.*?)<\\/Data>" 
 | eval size=mvrange(0, length(key)-1), results=create_map() 
+| eval results=for_each(iterator(size, "x"), concat( 
+    [ mvindex(key, x), "=", mvindex(value, x)])), n=mvjoin(";", results), results=extract_key_value(n, "=", ";") 
+| eval results=map_set(results, "EventCode", cast(EventCode, "string")), results=map_set(results, "Channel", cast(Channel, "string")), results=map_set(results, "host", cast(host, "string")), results=map_set(results, "AppStack", "Intranet"), results=map_set(results, "ProcessedBy", "dsp") 
+| eval body=to_json(results), sourcetype="dsp_winevent" 
+| fields body, sourcetype 
 | into splunk_enterprise_indexes("71fed15a-41ec-462f-9420-5a3301084ecb", "dsp_windows_mannel_rex", "dsp_windows_mannel_rex");
