@@ -1,23 +1,16 @@
-$statement_3 = 
-| from receive_from_forwarders("forwarders:all"); 
-
-| from $statement_3 
-| where source_type="XmlWinEventLog:System" AND body!="" 
-| eval body=cast(body, "string") 
-| rex max_match=0 field=body "<EventID.*?>(?<EventCode>.+?)</EventID>.*<EventRecordID>(?<EventRecordID>.+?)</EventRecordID>.*<Execution ProcessID='(?<ProcessID>.+?)' ThreadID='(?<ThreadID>.+?)'/><Channel>(?<Channel>.+?)</Channel><Computer>(?<host>.+?)</Computer>.*"; 
-
-| from $statement_3 
-| where source_type="XmlWinEventLog:Application" AND body!=""; 
-
-| from $statement_3 
+| from receive_from_forwarders("forwarders:all") 
 | where source_type="XmlWinEventLog:Security" AND body!="" 
 | eval body=cast(body, "string") 
 | rex max_match=0 field=body "<EventID.*?>(?<EventCode>.+?)</EventID>.*<EventRecordID>(?<EventRecordID>.+?)</EventRecordID>.*<Channel>(?<Channel>.+?)</Channel><Computer>(?<host>.+?)</Computer>.*" 
-| rex max_match=0 field=body "<Data Name='(?<key>.*?)'>(?<value>.*?)<\\/Data>" 
-| eval size=mvrange(0, length(key)-1), results=create_map() 
-| eval results=for_each(iterator(size, "x"), concat( 
-    [ mvindex(key, x), "=", mvindex(value, x)])), n=mvjoin(";", results), results=extract_key_value(n, "=", ";") 
-| eval results=map_set(results, "EventCode", cast(EventCode, "string")), results=map_set(results, "Channel", cast(Channel, "string")), results=map_set(results, "host", cast(host, "string")), results=map_set(results, "AppStack", "Intranet"), results=map_set(results, "ProcessedBy", "dsp") 
-| eval body=to_json(results), sourcetype="dsp_winevent" 
+| rex max_match=0 field=body "\\s(?<optionalKey>ThreadID|ProcessID|Guid)='(?<optionalValue>.*?)'" 
+| rex max_match=0 field=body "<(?<optionalKey2>Version|Level|Keywords|Task|Opcode)>(?<optionalValue2>.*?)<" 
+| rex max_match=0 field=body "<Data Name='(?<dataNodeKey>.*?)'>(?<dataNodeValue>.*?)</Data>" 
+| eval dataNodeSize=mvrange(0, length(dataNodeKey)), optionalSize=mvrange(0, length(optionalKey)), optionalSize2=mvrange(0, length(optionalKey2)) 
+| eval dataNodeMap=for_each(iterator(dataNodeSize, "x"), concat( 
+    [ mvindex(dataNodeKey, x), "=", mvindex(dataNodeValue, x)])), optionalMap=for_each(iterator(optionalSize, "x"), concat( 
+    [ mvindex(optionalKey, x), "=", mvindex(optionalValue, x)])), optionalMap2=for_each(iterator(optionalSize2, "x"), concat( 
+    [ mvindex(optionalKey2, x), "=", mvindex(optionalValue2, x)])), dataNodeN=mvjoin(";", dataNodeMap), optionalN=mvjoin(";", optionalMap), optionalN2=mvjoin(";", optionalMap2), masterN=concat(optionalN, ";", optionalN2, ";", dataNodeN), masterMap=extract_key_value(masterN, "=", ";") 
+| eval payload=map_set(masterMap, "EventCode", cast(EventCode, "string")), payload=map_set(payload, "Channel", cast(Channel, "string")), payload=map_set(payload, "host", cast(host, "string")), payload=map_set(payload, "AppStack", "Intranet"), payload=map_set(payload, "ProcessedBy", "dsp") 
+| eval body=to_json(payload), sourcetype="dsp_winevent" 
 | fields body, sourcetype 
-| into splunk_enterprise_indexes("71fed15a-41ec-462f-9420-5a3301084ecb", "dsp_windows_mannel_rex", "dsp_windows_mannel_rex");
+| into splunk_enterprise_indexes("token", "index", "index");
