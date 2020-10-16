@@ -1,0 +1,33 @@
+$statement_3 = 
+| from receive_from_forwarders("forwarders:all") 
+| where (source_type="XmlWinEventLog:Security" OR source_type="XmlWinEventLog:System") AND body!="" 
+| eval body=cast(body, "string"), masterMap = create_map( 
+    [ "test", "test"]), masterMap = map_delete(masterMap, 
+    [ "test"]) 
+| rex max_match=0 field=body "<EventID.*?>(?<EventCode>.+?)</EventID>.*<EventRecordID>(?<EventRecordID>.+?)</EventRecordID>.*<Channel>(?<Channel>.+?)</Channel><Computer>(?<host>.+?)</Computer>.*" 
+| rex max_match=0 field=body "(?<optionalKey>Provider Name|ThreadID|ProcessID|Guid|UserID|Qualifiers)=['\"](?<optionalValue>.*?)['\"]" 
+| rex max_match=0 field=body "<(?<optionalKey2>Version|Level|Keywords|Task|Opcode|Data)>(?<optionalValue2>.*?)<" 
+| rex max_match=0 field=body "<Data Name='(?<dataNodeKey>.*?)'>(?<dataNodeValue>.*?)</Data>";
+    $statement_2 = 
+| from $statement_3 
+| where dataNodeKey is NULL 
+| eval optionalSize=mvrange(0, length(optionalKey)), optionalSize2=mvrange(0, length(optionalKey2)) 
+| eval optionalMap=for_each(iterator(optionalSize, "x"), concat( 
+    [ mvindex(optionalKey, x), "=", mvindex(optionalValue, x)])), optionalMap2=for_each(iterator(optionalSize2, "x"), concat( 
+    [ mvindex(optionalKey2, x), "=", mvindex(optionalValue2, x)])), optionalN=mvjoin(";", optionalMap), optionalN2=mvjoin(";", optionalMap2), masterN=concat(optionalN, ";", optionalN2), masterMap=extract_key_value(masterN, "=", ";") 
+| fields masterMap, EventCode, EventRecordID, Channel, host;
+    $statement_1 = 
+| from $statement_3 
+| where dataNodeKey is not NULL 
+| eval dataNodeSize=mvrange(0, length(dataNodeKey)), optionalSize=mvrange(0, length(optionalKey)), optionalSize2=mvrange(0, length(optionalKey2)) 
+| eval dataNodeMap=for_each(iterator(dataNodeSize, "x"), concat( 
+    [ mvindex(dataNodeKey, x), "=", mvindex(dataNodeValue, x)])), optionalMap=for_each(iterator(optionalSize, "x"), concat( 
+    [ mvindex(optionalKey, x), "=", mvindex(optionalValue, x)])), optionalMap2=for_each(iterator(optionalSize2, "x"), concat( 
+    [ mvindex(optionalKey2, x), "=", mvindex(optionalValue2, x)])), dataNodeN=mvjoin(";", dataNodeMap), optionalN=mvjoin(";", optionalMap), optionalN2=mvjoin(";", optionalMap2), masterN=concat(optionalN, ";", optionalN2, ";", dataNodeN), masterMap=extract_key_value(masterN, "=", ";") 
+| fields masterMap, EventCode, EventRecordID, Channel, host; 
+| from $statement_1 
+| union $statement_2 
+| eval payload=map_set(masterMap, "EventCode", cast(EventCode, "string")), payload=map_set(payload, "Channel", cast(Channel, "string")), payload=map_set(payload, "AppStack", "Intranet"), payload=map_set(payload, "ProcessedBy", "dsp") 
+| eval body=to_json(payload), sourcetype="dsp_winevent", host=cast(host, "string") 
+| fields + body, sourcetype, host 
+| into splunk_enterprise_indexes("71fed15a-41ec-462f-9420-5a3301084ecb", "dsp_windows_mannel_rex", "dsp_windows_mannel_rex");
